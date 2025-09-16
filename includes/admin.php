@@ -1,6 +1,10 @@
 <?php
 if (!defined('ABSPATH')) exit;
 
+/**
+ * Admin UI for RHCJC Abstractive Summary
+ */
+
 add_action('add_meta_boxes', function(){
   add_meta_box('rhcjc_as_meta', 'RHCJC AI Summary', 'rhcjc_as_meta_render', 'post', 'side', 'default');
 });
@@ -13,8 +17,11 @@ function rhcjc_as_meta_render($post) {
   $genat   = get_post_meta($post->ID, RHCJC_AS_META_GENERATED_AT, true);
   $err     = get_transient('rhcjc_as_last_error');
 
+  $global_model = get_option(RHCJC_AS_OPTION_MODEL, RHCJC_AS_DEFAULT_MODEL);
+  $use_model    = $model ?: $global_model;
+
   echo '<p><strong>Provider:</strong> '.esc_html($prov ?: 'openai').'</p>';
-  echo '<p><strong>Model:</strong> '.esc_html($model ?: get_option(RHCJC_AS_OPTION_MODEL, RHCJC_AS_DEFAULT_MODEL)).'</p>';
+  echo '<p><strong>Model:</strong> '.esc_html($use_model).'</p>';
   echo '<p><strong>Generated:</strong> '.esc_html($genat ?: '—').'</p>';
 
   if ($err) {
@@ -26,6 +33,8 @@ function rhcjc_as_meta_render($post) {
     echo '<p><strong>Current bullets:</strong></p><ol style="margin-left:18px">';
     foreach ((array)$bullets as $b) echo '<li style="margin:4px 0">'.esc_html($b).'</li>';
     echo '</ol>';
+  } else {
+    echo '<p><em>No summary found yet. Save/Update this post to trigger generation.</em></p>';
   }
 
   // Manual override textarea
@@ -37,9 +46,10 @@ function rhcjc_as_meta_render($post) {
 
   // Regenerate button (AJAX)
   echo '<p><button type="button" class="button" id="rhcjc_as_regen_btn" data-post="'.esc_attr($post->ID).'">Regenerate</button></p>';
-  echo '<p style="color:#666">Generation runs once on first publish. Use Regenerate after substantial edits.</p>';
+  echo '<p style="color:#666">Summaries generate on first publish. Use Regenerate after major edits.</p>';
 }
 
+/** Save overrides */
 add_action('save_post', function($post_id){
   if (!isset($_POST['rhcjc_as_override_nonce'])) return;
   if (!wp_verify_nonce($_POST['rhcjc_as_override_nonce'], 'rhcjc_as_override_'.$post_id)) return;
@@ -54,6 +64,7 @@ add_action('save_post', function($post_id){
   }
 }, 20);
 
+/** Show error notices */
 add_action('admin_notices', function(){
   if (!current_user_can('edit_posts')) return;
   $msg = get_transient('rhcjc_as_last_error');
@@ -63,6 +74,7 @@ add_action('admin_notices', function(){
   }
 });
 
+/** Enqueue admin scripts */
 add_action('admin_enqueue_scripts', function($hook){
   if (!in_array($hook, ['post.php','post-new.php','settings_page_rhcjc-as'], true)) return;
   wp_enqueue_script('rhcjc-as-admin', RHCJC_AS_URL.'assets/js/admin.js', ['jquery'], '1.0.0', true);

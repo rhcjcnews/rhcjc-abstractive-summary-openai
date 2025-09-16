@@ -2,60 +2,94 @@
 if (!defined('ABSPATH')) exit;
 
 add_action('admin_menu', function(){
-  add_options_page('RHCJC Summary', 'RHCJC Summary', 'manage_options', 'rhcjc-as', 'rhcjc_as_settings_page');
+  add_options_page(
+    'RHCJC AI Summary Settings',
+    'RHCJC Summary',
+    'manage_options',
+    'rhcjc-as',
+    'rhcjc_as_settings_page'
+  );
 });
 
 add_action('admin_init', function(){
-  register_setting('rhcjc_as', RHCJC_AS_OPTION_MODEL, [
-    'type' => 'string', 'sanitize_callback' => 'sanitize_text_field', 'default' => RHCJC_AS_DEFAULT_MODEL
+  // === Register settings ===
+  // API key
+  register_setting('rhcjc_as_options', 'rhcjc_as_api_key', [
+    'type' => 'string',
+    'sanitize_callback' => 'sanitize_text_field',
+    'default' => ''
   ]);
-  register_setting('rhcjc_as', RHCJC_AS_OPTION_AUTOINSERT, [
-    'type' => 'boolean', 'sanitize_callback' => fn($v)=> $v ? 1 : 0, 'default' => 0
+
+  // Model (default GPT-4.1)
+  register_setting('rhcjc_as_options', RHCJC_AS_OPTION_MODEL, [
+    'type' => 'string',
+    'sanitize_callback' => 'sanitize_text_field',
+    'default' => 'gpt-4.1', // force GPT-4.1 as default
   ]);
-  // key stored via custom setter with obfuscation; not directly registered
+
+  // === Section ===
+  add_settings_section(
+    'rhcjc_as_main',
+    'AI Summary Settings',
+    function(){
+      echo '<p>Configure the model and API key for RHCJC summaries.</p>';
+    },
+    'rhcjc-as'
+  );
+
+  // === API key field ===
+  add_settings_field(
+    'rhcjc_as_api_key',
+    'OpenAI API Key',
+    function(){
+      $val = get_option('rhcjc_as_api_key', '');
+      echo '<input type="password" style="width:400px" name="rhcjc_as_api_key" value="' . esc_attr($val) . '" />';
+      echo '<p class="description">Enter your OpenAI API key. This is stored securely in WordPress options.</p>';
+    },
+    'rhcjc-as',
+    'rhcjc_as_main'
+  );
+
+  // === Model dropdown ===
+  add_settings_field(
+    'rhcjc_as_model',
+    'Default Model',
+    function(){
+      $val = get_option(RHCJC_AS_OPTION_MODEL, 'gpt-4.1');
+      $models = [
+        'gpt-4.1'     => 'GPT-4.1 (best quality, factual – recommended)',
+        'gpt-4.1-mini'=> 'GPT-4.1-mini (cheaper, slightly faster)',
+        'gpt-4o'      => 'GPT-4o (multimodal, general)',
+        'gpt-4o-mini' => 'GPT-4o-mini (cheapest, lowest quality)',
+      ];
+      echo '<select name="'.esc_attr(RHCJC_AS_OPTION_MODEL).'">';
+      foreach ($models as $id => $label) {
+        printf(
+          '<option value="%s" %s>%s</option>',
+          esc_attr($id),
+          selected($val, $id, false),
+          esc_html($label)
+        );
+      }
+      echo '</select>';
+      echo '<p class="description">Choose the model for summaries. GPT-4.1 is set as default and recommended.</p>';
+    },
+    'rhcjc-as',
+    'rhcjc_as_main'
+  );
 });
 
+// === Render settings page ===
 function rhcjc_as_settings_page() {
-  if (!current_user_can('manage_options')) return;
-
-  // handle key save
-  if (isset($_POST['rhcjc_as_save']) && check_admin_referer('rhcjc_as_settings')) {
-    $key = isset($_POST['openai_key']) ? trim((string)$_POST['openai_key']) : '';
-    rhcjc_as_set_api_key($key);
-    echo '<div class="updated"><p>Settings saved.</p></div>';
-  }
-
-  $model  = get_option(RHCJC_AS_OPTION_MODEL, RHCJC_AS_DEFAULT_MODEL);
-  $autoi  = (int)get_option(RHCJC_AS_OPTION_AUTOINSERT, 0);
-  $mask   = rhcjc_as_mask(rhcjc_as_get_api_key());
   ?>
   <div class="wrap">
-    <h1>RHCJC AI Summary</h1>
-    <form method="post">
-      <?php wp_nonce_field('rhcjc_as_settings'); ?>
-      <table class="form-table" role="presentation">
-        <tr>
-          <th scope="row"><label>OpenAI API key</label></th>
-          <td>
-            <input type="password" name="openai_key" value="" placeholder="<?php echo esc_attr($mask ?: 'Paste key…'); ?>" style="width:420px">
-            <p class="description">Best practice: define <code>RHCJC_OPENAI_KEY</code> in <code>wp-config.php</code> or set as an environment variable. This field stores a lightly obfuscated copy if provided.</p>
-          </td>
-        </tr>
-        <tr>
-          <th scope="row"><label>Model</label></th>
-          <td>
-            <input type="text" name="<?php echo esc_attr(RHCJC_AS_OPTION_MODEL); ?>" value="<?php echo esc_attr($model); ?>" style="width:240px">
-            <p class="description">Examples: <code>gpt-4o-mini</code>, <code>gpt-4.1-mini</code>, <code>gpt-4.1</code></p>
-          </td>
-        </tr>
-        <tr>
-          <th scope="row"><label>Auto-insert</label></th>
-          <td>
-            <label><input type="checkbox" name="<?php echo esc_attr(RHCJC_AS_OPTION_AUTOINSERT); ?>" value="1" <?php checked($autoi,1); ?>> Prepend the summary box above the article (otherwise, use the <code>[rhcjc_summary]</code> shortcode)</label>
-          </td>
-        </tr>
-      </table>
-      <p class="submit"><button class="button button-primary" name="rhcjc_as_save" value="1">Save Settings</button></p>
+    <h1>RHCJC AI Summary Settings</h1>
+    <form method="post" action="options.php">
+      <?php
+      settings_fields('rhcjc_as_options');
+      do_settings_sections('rhcjc-as');
+      submit_button();
+      ?>
     </form>
   </div>
   <?php
